@@ -1,28 +1,219 @@
 ---
-title: ""
-author: ""
+title: "Assignment-1"
+author: "YangXu"
 format:
   html:
     embed-resources: true
 ---
 
-## Quarto
-
-Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
-
-## Running Code
-
-When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
-
+```{r, message=FALSE}
+library(tidyverse)
+library(data.table)
+library(leaflet)
+library(ggplot2)
+```
+## Step 1
+Read in the data and conduct EDA checklist items 2-4
 ```{r}
-1 + 1
+# Read in the data using data.table()
+setwd("~/Desktop/PM566/Assignment1")
+pm2.5_2002 <- data.table::fread("ad_viz_plotval_data_2002.csv")
+pm2.5_2022 <- data.table::fread("ad_viz_plotval_data_2022.csv")
+
+# check the dimensions, headers, footers, variable names and variable types
+# For data of 2002
+# dimensions
+dim(pm2.5_2002)
+# headers
+head(pm2.5_2002)
+# footers
+tail(pm2.5_2002)
+# variable names and types
+str(pm2.5_2002)
+
+# For data in 2022
+# dimensions
+dim(pm2.5_2022)
+# headers
+head(pm2.5_2022)
+# footers
+tail(pm2.5_2022)
+# variable names and types
+str(pm2.5_2022)
+
+# check for any data issues
+summary(pm2.5_2002$`Daily Mean PM2.5 Concentration`)
+summary(pm2.5_2022$`Daily Mean PM2.5 Concentration`)
 ```
 
-You can add options to executable code like this
+It dose not make sense to have a daily mean PM2.5 concentration to be -2.2.
+So I decide to remove all the parts that PM2.5 < 0.
 
 ```{r}
-#| echo: false
-2 * 2
+pm2.5_2022 <- pm2.5_2022[`Daily Mean PM2.5 Concentration` >= 0,]
+summary(pm2.5_2022$`Daily Mean PM2.5 Concentration`)
 ```
 
-The `echo: false` option disables the printing of code (only output is displayed).
+Summary: The mean of daily mean PM2.5 concentration in 2022 is 8.554 ug/m3 LC, which is lower than 16.12 ug/m3 LC in 2002. This may give us a possible sign that daily PM2.5 concentration have decreased in California over the last 20 years.
+
+## Step 2
+Combine the two years of data into one data frame. Use the Date variable to create a new column for year, which will serve as an identifier. Change the names of the key variables so that they are easier to refer to in your code.
+
+```{r}
+# Create new column of 'year'
+pm2.5_2002 <- pm2.5_2002[, year := 2002]
+pm2.5_2022 <- pm2.5_2022[, year := 2022]
+
+# Combine two years of data into one
+dat_pm2.5 <- rbind(pm2.5_2002, pm2.5_2022)
+
+# Change the names of key variables
+setnames(dat_pm2.5,c("Daily Mean PM2.5 Concentration", "SITE_LATITUDE", "SITE_LONGITUDE", "Site Name"),                            c("pm2.5", "lat", "lon", "site"))
+
+```
+
+## Step 3
+Create a basic map in leaflet() that shows the locations of the sites (make sure to use different colors for each year). Summarize the spatial distribution of the monitoring sites.
+
+```{r}
+leaflet(dat_pm2.5) %>% 
+  addTiles() %>% 
+  addCircles(
+    lng = ~lon,
+    lat = ~lat,
+    color = ~ifelse(year == 2002, "red", "blue"), 
+    weight = 2, 
+    opacity =1,
+    fillOpacity = 1, 
+    radius = 100,
+    popup = ~site, 
+    label = "Map of Sites Measured in 2002(red) and 2022 (blue)")
+
+```
+
+The map shows that the number of blue spots(2022) is much more than the number of red spots(2002).
+And also the blue spots are more wide-spread than red spots.
+
+## Step 4
+Check for any missing or implausible values of PM2.5 in the combined dataset. Explore the proportions of each and provide a summary of any temporal patterns you see in these observations.
+```{r}
+# Check for missing value
+sum(is.na(dat_pm2.5$pm2.5))
+# Check for implausible values
+summary(dat_pm2.5$pm2.5)
+
+```
+
+
+## Step 5
+Explore the main question of interest at three different spatial levels. Create exploratory plots (e.g. boxplots, histograms, line plots) and summary statistics that best suit each level of data. Be sure to write up explanations of what you observe in these data.
+
+### State Level
+```{r}
+# Boxplot
+dat_pm2.5[!is.na(year)] %>%
+  ggplot() +
+    geom_boxplot(mapping = aes(x = year, y = pm2.5, group = year))
+
+# Barcharts
+average_pm <- dat_pm2.5 %>%
+  group_by(year) %>%
+  summarize(avg_pm = mean(pm2.5, na.rm = TRUE))
+average_pm %>%
+  ggplot() +
+  geom_bar(mapping = aes(x = year, y = stat(average_pm$avg_pm) , group = 1))
+
+# Summary statistics
+tapply(dat_pm2.5$pm2.5, dat_pm2.5$year, summary)
+t.test(pm2.5_2002$`Daily Mean PM2.5 Concentration`, pm2.5_2022$`Daily Mean PM2.5 Concentration`, paired = FALSE)
+```
+
+From the result, there was a statistically significant decrease in daily mean PM2.5 concentration from 2002 to 2022.
+
+
+### County Level
+```{r}
+pm2.5_County = dat_pm2.5 %>% 
+  filter(dat_pm2.5$COUNTY %in% 
+           intersect(pm2.5_2002$COUNTY, pm2.5_2022$COUNTY))
+County = group_by(pm2.5_County, year, COUNTY) %>% 
+  summarize(`pm2.5` = mean(`pm2.5`, na.rm = TRUE), .groups = "drop") 
+
+Daily_PM2.5_Concentration <- (County$`pm2.5`)
+# Boxplot
+County %>%
+  ggplot() +
+  geom_boxplot(mapping = aes(x = year, y = pm2.5, group = COUNTY))
+
+average_pm_by_county_02 <- dat_pm2.5[dat_pm2.5$year == 2002, ] %>%
+  group_by(COUNTY) %>% 
+  summarize(
+    average_pm_2002 = mean(pm2.5, na.rm = TRUE)
+  )
+average_pm_by_county_22 <- dat_pm2.5[dat_pm2.5$year == 2022, ] %>%
+  group_by(COUNTY) %>% 
+  summarize(
+    average_pm_2022 = mean(pm2.5, na.rm = TRUE)
+  )
+t.test(average_pm_by_county_02$average_pm_2002, average_pm_by_county_22$average_pm_2022, paired = FALSE)
+```
+
+From the result, there was a statistically significant decrease in daily mean PM2.5 concentration by county from 2002 to 2022.
+
+### Site Level
+```{r}
+average_pm_by_site_02 <- dat_pm2.5[dat_pm2.5$year == 2002, ] %>%
+  group_by(site) %>% 
+  summarize(
+    average_site_pm_2002 = mean(pm2.5, na.rm = TRUE),
+    Year = mean(year),
+    Lat = mean(lat), 
+    Lon = mean(lon)
+  )
+average_pm_by_site_22 <- dat_pm2.5[dat_pm2.5$year == 2022, ] %>%
+  group_by(site) %>% 
+  summarize(
+    average_site_pm_2022 = mean(pm2.5, na.rm = TRUE),
+    Year = mean(year),
+    Lat = mean(lat), 
+    Lon = mean(lon)
+  )
+# leaflet maps
+Site_mean <- rbindlist(list(
+  average_pm_by_site_02, 
+  average_pm_by_site_22),fill = TRUE)
+
+color_palette <- colorNumeric(
+  palette = "viridis",  
+  domain = Site_mean$average_pm_2002_site
+)
+
+temp.pal02 <- colorNumeric(c('pink','deeppink','deeppink4'), domain=average_pm_by_site_02$average_site_pm_2002)
+
+leaflet02 <- leaflet(average_pm_by_site_02) %>% 
+  addProviderTiles('CartoDB.Positron') %>% 
+  addCircles(
+    lat = ~Lat, lng=~Lon,
+    label = ~paste0(round(average_pm_by_site_02$average_site_pm_2002,2), ' PM2.5'), color = ~ temp.pal02(average_pm_by_site_02$average_site_pm_2002),
+    opacity = 1, fillOpacity = 1, radius = 500
+    ) %>%
+  addLegend('bottomleft', pal=temp.pal02, values=average_pm_by_site_02$average_site_pm_2002,
+          title='Mean Concentrations PM2.5 by site in 2002', opacity=1)
+
+leaflet22 <- leaflet(average_pm_by_site_22) %>% 
+  addProviderTiles('CartoDB.Positron') %>% 
+  addCircles(
+    lat = ~Lat, lng=~Lon,
+    label = ~paste0(round(average_pm_by_site_22$average_site_pm_2022,2), ' PM2.5'), color = ~ temp.pal02(average_pm_by_site_02$average_site_pm_2002),
+    opacity = 1, fillOpacity = 1, radius = 500
+    ) %>%
+  addLegend('bottomleft', pal=temp.pal02, values=average_pm_by_site_02$average_site_pm_2002,
+          title='Mean Concentrations PM2.5 by site in 2022', opacity=1)
+
+leaflet02
+leaflet22
+
+# t-test
+t.test(average_pm_by_site_02$average_site_pm_2002, average_pm_by_site_22$average_site_pm_2022, paired = FALSE)
+```
+From the result, there was a statistically significant decrease in the daily average PM2.5 concentrations by site from 2002 to 2022.
