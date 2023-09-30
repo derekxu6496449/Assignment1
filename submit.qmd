@@ -16,7 +16,6 @@ library(ggplot2)
 Read in the data and conduct EDA checklist items 2-4
 ```{r}
 # Read in the data using data.table()
-setwd("~/Desktop/PM566/Assignment1")
 pm2.5_2002 <- data.table::fread("ad_viz_plotval_data_2002.csv")
 pm2.5_2022 <- data.table::fread("ad_viz_plotval_data_2022.csv")
 
